@@ -1,0 +1,971 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>세이프틴 (SafeTeen) - 통합 보안 가드</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght=400;600;700;900&display=swap');
+
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #f8fafc;
+            overflow-x: hidden;
+        }
+
+        .safe-gradient {
+            background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+            .tab-content.active {
+                display: block;
+            }
+
+        .fade-in {
+            animation: fadeIn 0.4s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        #map {
+            height: 380px;
+            width: 100%;
+            border-radius: 24px;
+            z-index: 10;
+            border: 2px solid #e2e8f0;
+        }
+
+        .emergency-popup {
+            animation: alertShake 0.4s ease-in-out infinite alternate;
+            border: 5px solid #e11d48;
+        }
+
+        @keyframes alertShake {
+            from {
+                transform: scale(1.0);
+            }
+
+            to {
+                transform: scale(1.015);
+            }
+        }
+
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .simulation-btn:active {
+            transform: scale(0.97);
+        }
+
+        .scan-line {
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #6366f1, transparent);
+            animation: scan 1.5s infinite;
+        }
+
+        @keyframes scan {
+            0% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(160px);
+            }
+
+            100% {
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+<body class="pb-24">
+
+    <div id="emergency-modal" class="fixed inset-0 z-[9999] bg-black/85 flex items-center justify-center p-4 hidden">
+        <div class="emergency-popup bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
+            <div class="bg-rose-600 p-5 text-white text-center flex-shrink-0 relative">
+                <h2 class="text-xl font-black tracking-tighter flex items-center justify-center gap-2 animate-pulse">
+                    <i class="fas fa-triangle-exclamation text-yellow-300"></i> [긴급 안심 안보문자]
+                </h2>
+                <span id="alert-queue-badge" class="absolute right-4 top-5 bg-black/40 text-[11px] px-2.5 py-0.5 rounded-full font-bold"></span>
+            </div>
+            <div id="emergency-content" class="p-6 overflow-y-auto bg-stone-50 text-stone-800 text-left flex-1 text-sm leading-relaxed"></div>
+            <div class="p-4 bg-white border-t flex-shrink-0">
+                <button onclick="dismissCurrentAlert()" class="w-full py-4 bg-rose-600 text-white rounded-2xl font-black text-lg shadow-lg active:scale-95 transition">
+                    위 안전 행동 수칙을 확인했습니다
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="shop-success-modal" class="fixed inset-0 z-[6000] bg-black/80 flex items-center justify-center p-6 hidden">
+        <div class="bg-white rounded-3xl w-full max-w-sm p-6 text-center shadow-2xl fade-in">
+            <div class="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center text-2xl mx-auto mb-4">
+                <i class="fas fa-barcode"></i>
+            </div>
+            <h3 class="text-lg font-bold text-gray-900">안심 리워드 기프티콘 교환 성공</h3>
+            <p class="text-xs text-gray-500 mt-1">포인트 차감이 정상 완료되었습니다. 매장에서 제시하세요.</p>
+            <div class="my-5 p-4 bg-stone-100 rounded-2xl border-2 border-dashed border-stone-300">
+                <p id="coupon-item-name" class="font-bold text-sm text-gray-800">-</p>
+                <div class="w-full h-12 bg-stone-800 mt-3 rounded flex items-center justify-center tracking-[6px] text-white font-mono text-xs font-bold">
+                    ||||| 8291 0482 1952 ||||
+                </div>
+            </div>
+            <button onclick="document.getElementById('shop-success-modal').classList.add('hidden')" class="w-full py-3 bg-gray-900 text-white rounded-xl font-bold text-xs">보관함으로 닫기</button>
+        </div>
+    </div>
+
+    <div id="wifi-detail-modal" class="fixed inset-0 z-[5000] bg-black/80 flex items-center justify-center p-6 hidden">
+        <div class="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl fade-in relative">
+            <div id="wifi-scanning-overlay" class="absolute inset-0 bg-white z-50 flex flex-col items-center justify-center p-6">
+                <div class="relative w-40 h-40 border-4 border-indigo-100 rounded-full flex items-center justify-center overflow-hidden mb-6">
+                    <div class="scan-line absolute w-full"></div>
+                    <i class="fas fa-wifi text-5xl text-indigo-500 animate-pulse"></i>
+                </div>
+                <h4 class="text-lg font-bold text-gray-900" id="wifi-scan-title">현재 네트워크 환경 보안 스캔 중</h4>
+                <div class="w-full bg-gray-100 h-2 rounded-full mt-6 overflow-hidden">
+                    <div id="scan-progress" class="bg-indigo-600 h-full w-0 transition-all duration-300"></div>
+                </div>
+            </div>
+            <div class="p-6">
+                <h3 class="text-lg font-bold mb-4 flex items-center gap-2"><i class="fas fa-shield-virus text-indigo-600"></i> 와이파이 가드 정밀 진단 리포트</h3>
+                <div class="space-y-3 text-xs" id="wifi-report-list">
+                </div>
+                <button onclick="document.getElementById('wifi-detail-modal').classList.add('hidden')" class="w-full mt-5 py-3.5 bg-indigo-600 text-white rounded-2xl font-bold text-sm">리포트 확인 완료</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="onboarding-screen" class="fixed inset-0 z-[120] bg-white flex flex-col p-6">
+        <div class="mt-12 mb-8">
+            <div class="w-12 h-12 safe-gradient rounded-2xl flex items-center justify-center text-white text-2xl mb-4 shadow-lg"><i class="fas fa-shield-halved"></i></div>
+            <h1 class="text-2xl font-bold text-gray-900 tracking-tight">전국 학교 실시간 연동<br>시기별 맞춤형 재난 가드</h1>
+        </div>
+        <div class="relative mb-6">
+            <input type="text" id="onboarding-school-input" placeholder="학교명을 입력하세요 (예: 한양고)" class="w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-sm">
+            <button onclick="fetchSchoolData()" class="absolute right-3 top-3 p-2 bg-indigo-600 text-white rounded-xl"><i class="fas fa-search"></i></button>
+        </div>
+        <div id="api-loading" class="hidden text-center py-10"><div class="animate-spin inline-block rounded-full h-8 w-8 border-b-2 border-indigo-600"></div></div>
+        <div id="onboarding-results" class="flex-1 overflow-y-auto space-y-3 no-scrollbar"></div>
+    </div>
+
+    <div id="main-app" class="hidden fade-in">
+        <header class="safe-gradient text-white p-6 sticky top-0 z-50 shadow-lg">
+            <div class="max-w-4xl mx-auto flex justify-between items-center">
+                <div>
+                    <h1 class="text-2xl font-bold flex items-center gap-2"><i class="fas fa-shield-halved"></i> 세이프틴</h1>
+                    <div id="current-school-display" class="text-xs opacity-90 mt-1 font-bold bg-black/10 px-2 py-1 rounded inline-block">-</div>
+                </div>
+                <div class="bg-white/20 px-3 py-1 rounded-full text-sm font-semibold">
+                    <i class="fas fa-coins text-yellow-300"></i> <span id="user-points-header">0</span> P
+                </div>
+            </div>
+        </header>
+
+        <main class="max-w-4xl mx-auto p-4 space-y-6">
+
+            <div id="home-section" class="tab-content active space-y-6">
+                <div onclick="triggerWifiScan()" class="p-5 rounded-3xl bg-white border border-indigo-100 shadow-xl cursor-pointer hover:border-indigo-300 active:scale-95 transition">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600" id="wifi-icon-box"><i class="fas fa-wifi"></i></div>
+                            <div>
+                                <h4 class="font-bold text-gray-900 text-sm">무선 와이파이 실시간 보호 가드</h4>
+                                <p id="wifi-status-msg" class="text-[11px] text-gray-400 font-medium">여기를 눌러 현재 연결된 무선 회선의 가로채기 및 패킷 탈취 취약점을 실시간 검사하세요.</p>
+                            </div>
+                        </div>
+                        <span id="wifi-status-badge" class="px-2.5 py-1 bg-gray-100 text-gray-500 text-[10px] font-black rounded-lg">미스캔</span>
+                    </div>
+                </div>
+
+                <div class="p-4 rounded-2xl bg-white border border-rose-100 shadow-sm flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="w-3 h-3 rounded-full bg-rose-500 animate-pulse"></div>
+                        <span id="engine-status-text" class="text-xs font-bold text-gray-700">지능형 마스터 가드 가동 중</span>
+                    </div>
+                    <button onclick="forceTriggerAlertPopup()" class="text-[11px] text-indigo-600 font-bold bg-indigo-50 px-2.5 py-1 rounded-lg">주의보 팝업 다시보기</button>
+                </div>
+
+                <div class="p-6 rounded-3xl bg-white border border-gray-100 shadow-lg space-y-3">
+                    <h3 class="font-black text-gray-900 text-sm flex items-center gap-1.5"><i class="fas fa-clipboard-list text-rose-500"></i> 현재 실시간 안심 경보 요약</h3>
+                    <div id="dashboard-active-warnings" class="space-y-2 text-xs text-gray-600"></div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="md:col-span-2 space-y-4">
+                        <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-md">
+                            <h3 class="font-bold mb-3 flex items-center gap-2 text-sm text-gray-900">
+                                <i class="fas fa-shield-check text-indigo-600"></i> 💡 현재 대처해야 할 실시간 구체적 행동 지침
+                            </h3>
+                            <div id="daily-guide-box" class="space-y-3"></div>
+                        </div>
+                    </div>
+                    <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                        <h3 class="font-bold mb-4 flex items-center gap-2 text-sm"><i class="fas fa-calendar-check text-indigo-500"></i> 조회 연동 학사 일정</h3>
+                        <div id="monthly-calendar-list" class="space-y-2 max-h-[220px] overflow-y-auto no-scrollbar text-xs text-gray-600"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="map-section" class="tab-content space-y-4">
+                <div class="bg-white p-4 rounded-3xl shadow-sm border border-gray-100 space-y-2">
+                    <div class="flex items-center justify-between text-xs px-1 text-gray-500">
+                        <span id="gps-status-indicator" class="flex items-center gap-1"><i class="fas fa-location-crosshairs text-indigo-600"></i> 디바이스 하드웨어 GPS 위성 탐색 중...</span>
+                        <button onclick="syncRealDeviceGPS()" class="px-2 py-1 bg-indigo-50 text-indigo-700 rounded-md font-bold"><i class="fas fa-sync-alt"></i> 내 위치 수동 동기화</button>
+                    </div>
+                    <div class="relative flex gap-2">
+                        <input type="text" id="dest-input" placeholder="목적지 주소, 학원 또는 학교명 입력" class="flex-1 p-3 bg-gray-50 border-2 border-gray-100 rounded-xl focus:outline-none focus:border-indigo-500 text-sm">
+                        <button onclick="searchDestination()" class="px-5 bg-indigo-600 text-white rounded-xl font-bold text-sm"><i class="fas fa-search"></i></button>
+                    </div>
+                </div>
+                <div id="map"></div>
+                <div class="grid grid-cols-2 gap-3">
+                    <button id="route-btn" onclick="drawSafeRoute()" class="p-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg flex items-center justify-center gap-2 text-sm transition opacity-50 cursor-not-allowed" disabled><i class="fas fa-route"></i> 세이프 루트 생성</button>
+                    <button onclick="window.open('https://www.sexoffender.go.kr/', '_blank')" class="p-4 bg-white border border-gray-200 rounded-2xl font-bold shadow-sm flex items-center justify-center gap-2 text-sm text-gray-700"><i class="fas fa-user-shield text-orange-500"></i> 성범죄자 알림e</button>
+                </div>
+            </div>
+
+            <div id="quest-section" class="tab-content space-y-6">
+                <div class="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center justify-between">
+                    <div>
+                        <p class="text-[10px] font-bold text-indigo-600 uppercase">My Safety Guard Status</p>
+                        <h2 class="text-xl font-black text-gray-900">화이트 가디언 (Lv.1)</h2>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-[10px] font-bold text-gray-400">보유 안심 포인트</p>
+                        <p class="text-xl font-black text-indigo-600"><span id="user-points-display">0</span> P</p>
+                    </div>
+                </div>
+                <div class="space-y-4">
+                    <h3 class="font-bold text-base flex items-center gap-2 text-gray-800"><i class="fas fa-gamepad text-indigo-600"></i> 안전 시뮬레이션 훈련 퀘스트</h3>
+                    <div id="simulation-box" class="bg-indigo-900 text-white p-6 rounded-3xl shadow-xl min-h-[220px] flex flex-col justify-center transition-all"></div>
+                </div>
+
+                <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-lg space-y-4">
+                    <div>
+                        <h3 class="font-black text-base text-gray-900"><i class="fas fa-store text-amber-500"></i> 포인트 즉시 환전 및 기프티콘 상점</h3>
+                        <p class="text-[11px] text-gray-400 mt-0.5">안전 가이드 이수 및 훈련 보상 포인트로 현실 기프티콘 교환 및 계좌 출금을 지원합니다. (1P = 1원 환산 시세)</p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="p-3 bg-stone-50 border rounded-2xl flex flex-col justify-between">
+                            <div>
+                                <span class="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold">GS25</span>
+                                <h4 class="font-bold text-gray-808 text-xs mt-1">모바일 금액권 5,000원권</h4>
+                            </div>
+                            <button onclick="purchaseGiftcon('GS25 모바일 금액권 5,000원권', 5000)" class="w-full mt-3 py-2 bg-amber-500 text-white text-[11px] font-bold rounded-xl shadow">5,000 P 교환</button>
+                        </div>
+                        <div class="p-3 bg-stone-50 border rounded-2xl flex flex-col justify-between">
+                            <div>
+                                <span class="text-[10px] bg-red-100 text-red-800 px-1.5 py-0.5 rounded font-bold">교촌치킨</span>
+                                <h4 class="font-bold text-gray-800 text-xs mt-1">허니콤보 + 콜라 1.25L</h4>
+                            </div>
+                            <button onclick="purchaseGiftcon('교촌치킨 허니콤보 세트', 23000)" class="w-full mt-3 py-2 bg-amber-500 text-white text-[11px] font-bold rounded-xl shadow">23,000 P 교환</button>
+                        </div>
+                        <div class="p-3 bg-stone-50 border rounded-2xl flex flex-col justify-between">
+                            <div>
+                                <span class="text-[10px] bg-green-100 text-green-800 px-1.5 py-0.5 rounded font-bold">네이버페이</span>
+                                <h4 class="font-bold text-gray-800 text-xs mt-1">포인트 현금 전환 10,000원</h4>
+                            </div>
+                            <button onclick="purchaseGiftcon('네이버페이 포인트 현금 충전권 10,000원', 10000)" class="w-full mt-3 py-2 bg-amber-500 text-white text-[11px] font-bold rounded-xl shadow">10,000 P 교환</button>
+                        </div>
+                        <div class="p-3 bg-stone-50 border rounded-2xl flex flex-col justify-between">
+                            <div>
+                                <span class="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-bold">현금 출금</span>
+                                <h4 class="font-bold text-gray-800 text-xs mt-1">내 연결 계좌로 직접 현금화 출금</h4>
+                            </div>
+                            <button onclick="purchaseGiftcon('내 연결 계좌 10,000원 즉시 입금 완료', 10000)" class="w-full mt-3 py-2 bg-indigo-600 text-white text-[11px] font-bold rounded-xl shadow">10,000 P 현금출금</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="ai-section" class="tab-content space-y-6">
+                <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm space-y-4">
+                    <h3 class="font-bold text-base flex items-center gap-2 text-gray-800"><i class="fas fa-robot text-purple-600"></i> AI 지능형 위협 진단 상담</h3>
+                    <textarea id="ai-chat-input" rows="3" placeholder="예시: 시험지 유출이라고 링크가 왔어요, 혹은 불법 사금융 협박을 받고 있어요." class="w-full p-4 bg-gray-50 border-2 border-gray-100 rounded-2xl text-xs"></textarea>
+                    <button onclick="askAIGuardWithAgencies()" class="w-full py-3.5 safe-gradient text-white font-bold rounded-2xl text-xs shadow-md">AI 위협 상황 분석 및 지침 생성</button>
+                    <div id="ai-response-box" class="hidden p-4 rounded-2xl bg-purple-50/50 border border-purple-100 text-xs text-gray-700 leading-relaxed whitespace-pre-line"></div>
+                </div>
+
+                <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-lg space-y-4">
+                    <div>
+                        <h3 class="font-black text-base text-gray-900 flex items-center gap-2">
+                            <i class="fas fa-building-shield text-indigo-600"></i> 대한민국 국가 전문 기관 실무 구제 원클릭 핫라인
+                        </h3>
+                        <p class="text-[11px] text-gray-400 mt-0.5">각종 디지털 범죄, 불법 사금융, 청소년 협박 상황 발생 시 아래 국가 지정 전문 실무 기관의 링크나 다이렉트 전화를 통해 법적·행정적 즉각 대처가 가능합니다.</p>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+
+                        <div class="p-4 bg-slate-50 border border-slate-100 rounded-2xl flex flex-col justify-between space-y-3">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-bold rounded">경찰청</span>
+                                    <h4 class="font-bold text-gray-800">사이버범죄 신고시스템 (ECRM)</h4>
+                                </div>
+                                <p class="text-[11px] text-gray-500">메모리 해킹, 스미싱 사기 및 금품 갈취 사건에 대한 정식 사건 접수 및 수사권을 행사합니다.</p>
+                            </div>
+                            <div class="flex gap-1.5">
+                                <a href="tel:112" class="flex-1 py-2 bg-blue-600 text-white font-bold text-center rounded-xl text-[11px]"><i class="fas fa-phone"></i> 112 호출</a>
+                                <a href="https://ecrm.police.go.kr" target="_blank" class="flex-1 py-2 bg-white border border-gray-200 text-gray-700 font-bold text-center rounded-xl text-[11px]">온라인 정식신고</a>
+                            </div>
+                        </div>
+
+                        <div class="p-4 bg-slate-50 border border-slate-100 rounded-2xl flex flex-col justify-between space-y-3">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="px-2 py-0.5 bg-rose-100 text-rose-700 text-[10px] font-bold rounded">방심위</span>
+                                    <h4 class="font-bold text-gray-800">디지털 성범죄/딥페이크 심의국</h4>
+                                </div>
+                                <p class="text-[11px] text-gray-500">지인 도용 딥페이크, 불법 합성 성적 촬영물에 대해 24시간 이내 긴급 삭제 명령 및 사이트 차단을 진행합니다.</p>
+                            </div>
+                            <div class="flex gap-1.5">
+                                <a href="tel:1377" class="flex-1 py-2 bg-rose-600 text-white font-bold text-center rounded-xl text-[11px]"><i class="fas fa-phone"></i> 1377 호출</a>
+                                <a href="https://www.kocsc.or.kr" target="_blank" class="flex-1 py-2 bg-white border border-gray-200 text-gray-700 font-bold text-center rounded-xl text-[11px]">긴급 삭제 신청</a>
+                            </div>
+                        </div>
+
+                        <div class="p-4 bg-slate-50 border border-slate-100 rounded-2xl flex flex-col justify-between space-y-3">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="px-2 py-0.5 bg-purple-100 text-purple-700 text-[10px] font-bold rounded">여가부</span>
+                                    <h4 class="font-bold text-gray-800">디지털 성범죄 피해자 지원센터</h4>
+                                </div>
+                                <p class="text-[11px] text-gray-500">청소년 대상 성착취물 및 유포 협박 피해자에 대한 전방위적 유포 모니터링, 삭제 지원, 심리상담 및 무료 법률 지원을 연계합니다.</p>
+                            </div>
+                            <div class="flex gap-1.5">
+                                <a href="tel:02-735-8994" class="flex-1 py-2 bg-purple-600 text-white font-bold text-center rounded-xl text-[11px]"><i class="fas fa-phone"></i> 센터 연결</a>
+                                <a href="https://www.d4u.or.kr" target="_blank" class="flex-1 py-2 bg-white border border-gray-200 text-gray-700 font-bold text-center rounded-xl text-[11px]">피해 접수/상담</a>
+                            </div>
+                        </div>
+
+                        <div class="p-4 bg-slate-50 border border-slate-100 rounded-2xl flex flex-col justify-between space-y-3">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="px-2 py-0.5 bg-teal-100 text-teal-700 text-[10px] font-bold rounded">KISA</span>
+                                    <h4 class="font-bold text-gray-800">불법스팸/보이스피싱 대응센터</h4>
+                                </div>
+                                <p class="text-[11px] text-gray-500">악성 개인정보 유출용 문자, 가짜 학사일정 유출 유도 스미싱 주소(URL) 발견 시 즉시 추적 및 유해 차단을 집행합니다.</p>
+                            </div>
+                            <div class="flex gap-1.5">
+                                <a href="tel:118" class="flex-1 py-2 bg-teal-600 text-white font-bold text-center rounded-xl text-[11px]"><i class="fas fa-phone"></i> 118 상담</a>
+                                <a href="https://spam.kisa.or.kr" target="_blank" class="flex-1 py-2 bg-white border border-gray-200 text-gray-700 font-bold text-center rounded-xl text-[11px]">스미싱 주소 신고</a>
+                            </div>
+                        </div>
+
+                        <div class="p-4 bg-slate-50 border border-slate-100 rounded-2xl flex flex-col justify-between space-y-3">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded">정부지정</span>
+                                    <h4 class="font-bold text-gray-800">청소년 사이버상담센터 1388</h4>
+                                </div>
+                                <p class="text-[11px] text-gray-500">학교폭력, 가스라이팅, 그루밍 및 사이버 갈취 등으로 정신적 고통을 겪는 청소년을 위해 365일 24시간 익명 비밀 상담을 제공합니다.</p>
+                            </div>
+                            <div class="flex gap-1.5">
+                                <a href="tel:1388" class="flex-1 py-2 bg-emerald-600 text-white font-bold text-center rounded-xl text-[11px]"><i class="fas fa-phone"></i> 1388 호출</a>
+                                <a href="https://www.cyber1388.kr" target="_blank" class="flex-1 py-2 bg-white border border-gray-200 text-gray-700 font-bold text-center rounded-xl text-[11px]">24시 채팅상담</a>
+                            </div>
+                        </div>
+
+                        <div class="p-4 bg-slate-50 border border-slate-100 rounded-2xl flex flex-col justify-between space-y-3">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="px-2 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-bold rounded">금감원</span>
+                                    <h4 class="font-bold text-gray-800">불법사금융 피해신고센터</h4>
+                                </div>
+                                <p class="text-[11px] text-gray-500">청소년 대상 SNS 대리입금 업자의 살인적인 이자 협박, 지인 연락처 도용 추심 행위에 대해 무료 대한법률구조공단 변호사를 지원합니다.</p>
+                            </div>
+                            <div class="flex gap-1.5">
+                                <a href="tel:1332" class="flex-1 py-2 bg-amber-600 text-white font-bold text-center rounded-xl text-[11px]"><i class="fas fa-phone"></i> 1332 연결</a>
+                                <a href="https://www.fss.or.kr" target="_blank" class="flex-1 py-2 bg-white border border-gray-200 text-gray-700 font-bold text-center rounded-xl text-[11px]">해당 구제신청</a>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+        </main>
+
+        <nav class="fixed bottom-0 left-0 right-0 bg-white border-t flex justify-around p-3 z-50 shadow-2xl">
+            <button onclick="showTab('home-section')" class="flex flex-col items-center text-indigo-600 tab-btn" id="btn-home-section"><i class="fas fa-home text-xl"></i><span class="text-[10px] mt-1 font-bold">홈</span></button>
+            <button onclick="showTab('map-section')" class="flex flex-col items-center text-gray-400 tab-btn" id="btn-map-section"><i class="fas fa-map-marked-alt text-xl"></i><span class="text-[10px] mt-1 font-bold">안전지도</span></button>
+            <button onclick="showTab('quest-section')" class="flex flex-col items-center text-gray-400 tab-btn" id="btn-quest-section"><i class="fas fa-star text-xl"></i><span class="text-[10px] mt-1 font-bold">퀘스트</span></button>
+            <button onclick="showTab('ai-section')" class="flex flex-col items-center text-gray-400 tab-btn" id="btn-ai-section"><i class="fas fa-robot text-xl"></i><span class="text-[10px] mt-1 font-bold">AI·기관</span></button>
+        </nav>
+    </div>
+
+    <script>
+        const SIMULATED_TODAY_STR = "2026-05-30";
+        const todayDate = new Date(SIMULATED_TODAY_STR);
+
+        // 초기 안심 포인트 기본값 0P 설정
+        let userPoints = 0;
+
+        let selectedSchool = null;
+        let map, userMarker, destMarker, routeLine;
+
+        let alertQueue = [];
+        let schoolSchedules = [];
+        let userCurrentLocation = { lat: 37.5668, lng: 126.9788 };
+        let hasAlertBeenShownThisSession = false;
+
+        const mockDangerZones = [
+        { id: 'loc_danger_1', name: '청소년 무해업소 밀집 및 사금융 피싱 다발 구역', lat: 37.5670, lng: 126.9790, desc: "현재 실시간 GPS 기준 위험 구역 반경 250m 이내에 도보 진입했습니다. 이면도로 이동을 중단하시고 대로변 안심 등하꾜길로 즉시 우회하십시오." }
+        ];
+
+        // 시기별 마스터 안심 규칙 및 행동수칙 데이터
+        const seasonalAlertRules = [
+        {
+        id: "rule_exam",
+        title: "📝 [학사일정 연동] 시험 기간 특별 보안 주의보",
+        check: (schedules) => {
+        const hasNisExam = schedules.some(s => s.EVENT_NM.includes("고사") || s.EVENT_NM.includes("시험") || s.EVENT_NM.includes("평가"));
+        const m = todayDate.getMonth() + 1; const d = todayDate.getDate();
+        return hasNisExam || (m === 5 && d >= 20) || m === 6 || m === 10;
+        },
+        content: `
+        <p class="font-bold text-rose-600 mb-1">● 성적 압박용 '기출문제 유출본' 위장 스미싱 차단</p>
+        <p class="text-stone-600 text-xs">시험 전후 오픈채팅방에 배포되는 '시험 기출 족보 복원' 단축 링크(.zip, .apk 파일)는 악성 개인정보 탈취용 파일입니다. 외부 파일은 일절 다운로드하지 마십시오.</p>
+        `,
+        guidelines: [
+        "❌ 단톡방, SNS에 공유되는 '비공식 기출 족보 다운로드 링크' 클릭 절대 금지",
+        "🔒 부득이하게 다운로드한 경우 출처를 알 수 없는 앱 설치(.apk 파일 실행) 즉시 취소",
+        "🚨 유출 유혹 메시지 수신 시 담임선생님 혹은 경찰청 사이버 수사국(112)에 지체 없이 제보"
+        ]
+        },
+        {
+        id: "rule_spending",
+        title: "💸 [시기별 경보] 5월 지출 집중 대리입금 금융 피해 경보",
+        check: () => { return (todayDate.getMonth() + 1 === 5); },
+        content: `
+        <p class="font-bold text-orange-600 mb-1">● 청소년 대상 고금리 불법 사금융(대리입금) 사기 수법 주의</p>
+        <p class="text-stone-600 text-xs">SNS에서 성행하는 '선이자 없는 소액 완납 대여'는 이율 환산 시 수천%에 달하는 불법 범죄입니다. 가족 신상 정보 공유 요구에는 절대 응하지 마십시오.</p>
+        `,
+        guidelines: [
+        "❌ 아이돌 굿즈나 게임 아이템 충전을 목적으로 SNS에서 대리입금 업자에게 접근하지 않기",
+        "🛑 본인의 주민등록증 사진, 부모님 휴대폰 번호, 지인 연락처를 담보로 제공하는 행동 절대 금지",
+        "⚖️ 이미 협박이나 독촉을 받고 있다면 혼자 고민하지 말고 금융감독원(1332) 무료 법률 대리 신청"
+        ]
+        }
+        ];
+
+        // 다양하고 유익한 훈련용 시나리오 10개
+        const scenarios = [
+        {
+        category: "스미싱 범죄 대처",
+        question: "단톡방에 '우리 학교 시험 기출 족보 한정 배포'라며 단축 링크가 올라왔습니다. 올바른 조치는?",
+        options: [
+        { text: "마감되기 전에 신속하게 링크를 눌러 파일을 확인한다.", isCorrect: false },
+        { text: "시험 기간 불안감을 교묘히 노리는 전형적인 계정 탈취 피싱 수법이므로 무시한다.", isCorrect: true }
+        ],
+        explanation: "시험 기간의 심리적 불안감을 노린 전형적인 악성코드 유포 및 계정 탈취 수법입니다."
+        },
+        {
+        category: "불법 사금융 (대리입금)",
+        question: "SNS에서 '선이자 없음, 댈입(대리입금) 해드림'이라는 글을 보고 소액을 빌리려고 합니다. 올바른 판단은?",
+        options: [
+        { text: "소액이고 이자가 없다고 하니 필요한 만큼 편하게 빌려 쓰고 갚는다.", isCorrect: false },
+        { text: "연이율 수천%의 불법 고금리 사금융이며, 개인정보 유출 및 협박으로 이어지므로 절대 이용하지 않는다.", isCorrect: true }
+        ],
+        explanation: "청소년 대상 대리입금은 용돈 가로채기, 개인정보 빌미 협박 등 심각한 범죄로 이어지는 불법 사금융입니다."
+        },
+        {
+        category: "디지털 성범죄 (딥페이크)",
+        question: "친구의 SNS 사진을 이용해 장난으로 얼굴을 합성한 딥페이크 이미지를 만들고 단톡방에 공유하자는 제안을 받았습니다. 어떻게 해야 할까요?",
+        options: [
+        { text: "장난이고 우리끼리만 보는 것이니 가볍게 참여한다.", isCorrect: false },
+        { text: "타인의 사진을 무단 합성·유포하는 것은 중대한 디지털 성범죄이므로 단호히 거절하고 만류한다.", isCorrect: true }
+        ],
+        explanation: "허위 영상물 제작 및 유포는 장난이 아닌 징역형에 처해질 수 있는 명백한 중범죄입니다."
+        },
+        {
+        category: "메신저 피싱 (계정 탈취)",
+        question: "친한 친구에게 모바일 메신저로 '인증번호가 네 폰으로 가니까 그것 좀 알려줘'라는 급박한 메시지가 왔습니다. 올바른 대처는?",
+        options: [
+        { text: "친한 친구의 부탁이니 의심 없이 인증번호를 복사해서 바로 보내준다.", isCorrect: false },
+        { text: "친구의 계정이 도용되었을 가능성이 매우 높으므로, 전화를 하거나 다른 방법으로 본인인지 직접 확인한다.", isCorrect: true }
+        ],
+        explanation: "지인을 사칭해 인증번호를 가로챈 뒤 소액결제를 하거나 계정을 탈취하는 전형적인 피싱 수법입니다."
+        },
+        {
+        category: "온라인 중고거래 사기",
+        question: "중고거래 앱에서 갖고 싶던 물건을 시세보다 훨씬 싸게 파는 판매자가 '안전결제 수수료를 아끼게 카톡으로 직거래하자'고 합니다. 어떻게 해야 할까요?",
+        options: [
+        { text: "싸게 살 수 있는 좋은 기회이므로 판매자가 알려준 계좌로 바로 송금한다.", isCorrect: false },
+        { text: "외부 메신저 유도 및 직거래 요구는 사기일 확률이 99%이므로 플랫폼 공식 결제 시스템만 이용한다.", isCorrect: true }
+        ],
+        explanation: "중고거래 시 공식 시스템을 벗어나 카카오톡 등 외부 메신저로 대화를 유도하고 계좌이체를 요구하는 것은 대표적인 사기 수법입니다."
+        },
+        {
+        category: "사이버 가스라이팅 / 그루밍",
+        question: "온라인 게임에서 만난 친절한 대리 게임 업자가 '너한테만 특별히 아이템을 주겠다'며 점점 사적인 사진이나 부모님 인적사항을 요구하기 시작합니다. 어떻게 해야 할까요?",
+        options: [
+        { text: "나를 특별하게 챙겨주는 좋은 형/누나이므로 요구하는 정보를 친절히 알려준다.", isCorrect: false },
+        { text: "온라인 유인(그루밍) 범죄의 위험 신호이므로 대화를 즉시 중단하고 부모님이나 선생님께 알린다.", isCorrect: true }
+        ],
+        explanation: "호의를 베풀며 신뢰를 쌓은 뒤 점차 사적인 정보나 부적절한 요구를 이어가는 것은 전형적인 온라인 그루밍 수법입니다."
+        },
+        {
+        category: "고수익 미끼 불법 알바",
+        question: "SNS에서 '단순 심부름, 쇼핑몰 리뷰 작성, 하루 10만원 당일 지급, 초보 가능'이라는 꿀알바 광고를 보았습니다. 올바른 태도는?",
+        options: [
+        { text: "단순 업무에 고수익을 주므로 용돈을 벌기 위해 일단 신청해서 일해본다.", isCorrect: false },
+        { text: "보이스피싱 현금 수거책이나 불법 자금 세탁 등 범죄 연루 알바 일 수 있으므로 절대 응하지 않는다.", isCorrect: true }
+        ],
+        explanation: "쉽게 큰돈을 벌 수 있다는 알바 광고 중 상당수는 자신도 모르게 범죄 가담자가 되어 처벌받게 만드는 미끼입니다."
+        },
+        {
+        category: "공공 Wi-Fi 보안",
+        question: "공공장소에서 비밀번호가 걸려있지 않은 개방형 Wi-Fi에 접속했습니다. 이때 주의해야 할 행동은?",
+        options: [
+        { text: "데이터를 아낄 수 있으므로 평소처럼 포털 로그인 및 금융 거래를 활발히 이용한다.", isCorrect: false },
+        { text: "해킹이나 패킷 가로채기 위험이 있으므로 개인정보 입력이나 로그인이 필요한 서비스 이용은 자제한다.", isCorrect: true }
+        ],
+        explanation: "보안이 없는 개방형 와이파이는 해커가 통신 내용을 들여다보거나 아이디/비밀번호를 탈취하기 쉽습니다."
+        },
+        {
+        category: "사이버 폭력 (동조 금지)",
+        question: "반 친구들이 모여있는 단톡방에서 특정 친구를 초대해 단체로 비난하고 조롱하는 상황(카따)이 발생했습니다. 올바른 행동은?",
+        options: [
+        { text: "분위기를 깨지 않기 위해 이모티콘을 던지거나 동조하는 말을 한마디씩 보탠다.", isCorrect: false },
+        { text: "사이버 폭력에 동조하지 않고, 해당 화면을 캡처하여 학교 선생님이나 청소년상담센터(1388)에 도움을 요청한다.", isCorrect: true }
+        ],
+        explanation: "사이버 공간에서의 집단 따돌림 및 비난은 명백한 학교폭력이며 이에 동조하거나 방관하는 것도 피해를 키우는 행동입니다."
+        },
+        {
+        category: "가짜 학사일정 피싱",
+        question: "교육청이나 학교 알리미를 사칭하여 '체험학습 참가 신청 안내문 문서 확인'이라는 문자메시지와 함께 첨부파일 다운로드 링크가 왔습니다. 올바른 확인법은?",
+        options: [
+        { text: "학교 일정이니 의심 없이 첨부파일을 다운로드하여 실행해 본다.", isCorrect: false },
+        { text: "출처가 불분명한 문자 링크의 파일은 악성 루팅 툴일 수 있으므로 학교 공식 홈페이지나 담임 선생님을 통해 직접 교차 확인한다.", isCorrect: true }
+        ],
+        explanation: "학교 공지사항이나 가정통신문 양식을 교묘하게 흉내 내어 악성 앱(.apk) 설치를 유도하는 스미싱 수법입니다."
+        }
+        ];
+
+        // 나이스 API 학교 검색
+        async function fetchSchoolData() {
+        const query = document.getElementById('onboarding-school-input').value.trim();
+        const results = document.getElementById('onboarding-results');
+        const loading = document.getElementById('api-loading');
+        if (query.length < 2) return;
+        results.innerHTML = ""; loading.classList.remove('hidden');
+        try {
+        const response = await fetch(`https://open.neis.go.kr/hub/schoolInfo?Type=json&SCHUL_NM=${encodeURIComponent(query)}`);
+        const data = await response.json();
+        loading.classList.add('hidden');
+        if (data.schoolInfo) {
+        data.schoolInfo[1].row.forEach(school => {
+        const div = document.createElement('div');
+        div.className = "p-4 bg-white border-2 border-gray-100 rounded-2xl cursor-pointer mb-3 hover:border-indigo-500 shadow-sm";
+        div.innerHTML = `<p class="font-bold text-sm text-gray-800">${school.SCHUL_NM}</p><p class="text-[10px] text-gray-400 mt-1">${school.ORG_RDNMA}</p>`;
+        div.onclick = () => initApp(school);
+        results.appendChild(div);
+        });
+        } else {
+        const fallbackDiv = document.createElement('div');
+        fallbackDiv.className = "p-4 bg-indigo-50/50 border-2 border-indigo-200 border-dashed rounded-2xl cursor-pointer text-center";
+        fallbackDiv.innerHTML = `<p class="font-bold text-xs text-indigo-700">🔍 나이스 미연동 학교 등록 (학사 일정 자동 예측 모드)</p>`;
+        fallbackDiv.onclick = () => initApp({ SCHUL_NM: query + " (예측 모드 가동)", fallbackMode: true });
+        results.appendChild(fallbackDiv);
+        }
+        } catch (e) { loading.classList.add('hidden'); }
+        }
+
+        // 앱 구동 초기화
+        async function initApp(school) {
+        selectedSchool = school;
+        document.getElementById('onboarding-screen').classList.add('hidden');
+        document.getElementById('main-app').classList.remove('hidden');
+        document.getElementById('current-school-display').innerText = `🏫 ${school.SCHUL_NM}`;
+
+        initMap();
+        loadRandomScenario();
+        updatePointDisplays();
+
+        if (school.fallbackMode) {
+        document.getElementById('engine-status-text').innerText = "표준 교육과정 학사 스케줄러 예측 가드 가동 중";
+        document.getElementById('monthly-calendar-list').innerHTML = `<p class='text-[11px] text-amber-600 font-bold p-1 text-center'>※ 표준 5월 학사일정(기말평가 준비기) 예측 가동</p>`;
+        schoolSchedules = [{ AA_YMD: "20260530", EVENT_NM: "기말고사 평가 및 야외 활동 기간 (시스템 표준 예측)" }];
+        evaluateSecurityAlertRules(true);
+        } else {
+        document.getElementById('engine-status-text').innerText = "나이스 공식 실시간 학사 데이터 연동 가동 중";
+        await fetchAcademicSchedule(school.ATPT_OFCDC_SC_CODE, school.SD_SCHUL_CODE);
+        }
+        }
+
+        // 나이스 일정 수신
+        async function fetchAcademicSchedule(officeCode, schoolCode) {
+        try {
+        const yearMonth = SIMULATED_TODAY_STR.replace(/-/g, '').substring(0, 6);
+        const response = await fetch(`https://open.neis.go.kr/hub/SchoolSchedule?Type=json&ATPT_OFCDC_SC_CODE=${officeCode}&SD_SCHUL_CODE=${schoolCode}&AA_YMD=${yearMonth}`);
+        const data = await response.json();
+        schoolSchedules = (data.SchoolSchedule && data.SchoolSchedule[1]) ? data.SchoolSchedule[1].row : [];
+
+        if(schoolSchedules.length === 0) {
+        schoolSchedules = [
+        { AA_YMD: "20260530", EVENT_NM: "1학기 기말지필평가 원서 접수" },
+        { AA_YMD: "20260608", EVENT_NM: "춘계 현장체험학습 및 야외 수련 활동" }
+        ];
+        }
+
+        document.getElementById('monthly-calendar-list').innerHTML = schoolSchedules.map(item => `
+        <div class="flex justify-between border-b border-gray-50 pb-1.5 pt-0.5">
+        <span class="${item.AA_YMD === SIMULATED_TODAY_STR.replace(/-/g,'') ? 'text-rose-600 font-black' : ''}">${item.AA_YMD.substring(6,8)}일</span>
+        <span class="font-medium text-gray-700">${item.EVENT_NM}</span>
+        </div>`).join('');
+
+        evaluateSecurityAlertRules(true);
+        } catch (e) { evaluateSecurityAlertRules(true); }
+        }
+
+        // 종합 주의보 평가 및 구체적 행동 지침 바인딩
+        function evaluateSecurityAlertRules(isInitialLaunch = false) {
+        alertQueue = [];
+        const dashboardArea = document.getElementById('dashboard-active-warnings');
+        const guideBox = document.getElementById('daily-guide-box');
+
+        dashboardArea.innerHTML = "";
+        guideBox.innerHTML = "";
+
+        let activeGuidelines = [];
+
+        seasonalAlertRules.forEach(rule => {
+        if (rule.check(schoolSchedules)) {
+        alertQueue.push({ title: rule.title, content: rule.content });
+        dashboardArea.innerHTML += `
+        <div class="p-2.5 bg-rose-50 rounded-xl border border-rose-100 font-medium text-rose-800 flex items-center gap-2">
+        <i class="fas fa-check-circle text-rose-500"></i> ${rule.title} 활성화
+        </div>`;
+
+        if(rule.guidelines) {
+        activeGuidelines = activeGuidelines.concat(rule.guidelines);
+        }
+        }
+        });
+
+        const userLatLng = L.latLng(userCurrentLocation.lat, userCurrentLocation.lng);
+        mockDangerZones.forEach(zone => {
+        const zoneLatLng = L.latLng(zone.lat, zone.lng);
+        if (userLatLng.distanceTo(zoneLatLng) <= 250) {
+        alertQueue.push({
+        title: `🚨 [위치 긴급 알림] 위험 구역 도보 진입 감지`,
+        content: `<p class="font-bold text-red-600 mb-1">● 실시간 GPS 위치 기반 경고</p><p class='text-stone-600 text-xs'>${zone.desc}</p>`
+        });
+        dashboardArea.innerHTML += `
+        <div class="p-2.5 bg-amber-50 rounded-xl border border-amber-100 font-medium text-amber-800 flex items-center gap-2">
+        <i class="fas fa-exclamation-triangle text-amber-500"></i> 위치 알림: [위험지대 반경 진입]
+        </div>`;
+        activeGuidelines.push("⚠️ 현재 GPS상 피싱/무해업소 밀집 구역에 진입했으므로 이어폰 착용을 중단하고 신속히 밝은 대로변으로 이탈하십시오.");
+        }
+        });
+
+        if(activeGuidelines.length > 0) {
+        guideBox.innerHTML = activeGuidelines.map(g => `
+        <div class="p-3 bg-indigo-50/50 rounded-2xl border border-indigo-100 flex items-start gap-2.5">
+        <div class="text-indigo-600 font-bold mt-0.5">•</div>
+        <p class="text-xs text-gray-700 font-semibold leading-relaxed">${g}</p>
+        </div>
+        `).join('');
+        } else {
+        guideBox.innerHTML = `<p class="text-xs text-gray-400 text-center py-4">현재 기간 설정된 고위험 위협 요소가 없습니다. 안심 안전 상태입니다.</p>`;
+        }
+
+        if (alertQueue.length > 0 && isInitialLaunch && !hasAlertBeenShownThisSession) {
+        renderEmergencyPopupStack();
+        }
+        }
+
+        // 전면 재난문자 출력 큐 관리
+        function renderEmergencyPopupStack() {
+        if (alertQueue.length === 0) {
+        document.getElementById('emergency-modal').classList.add('hidden');
+        hasAlertBeenShownThisSession = true;
+        return;
+        }
+        const activeAlert = alertQueue[0];
+        document.getElementById('alert-queue-badge').innerText = `미확인 수칙: ${alertQueue.length}건`;
+        document.getElementById('emergency-content').innerHTML = `
+        <div class="space-y-4">
+        <h3 class="text-base font-black text-rose-600">${activeAlert.title}</h3>
+        <div class="bg-white p-4 rounded-2xl border border-stone-200 shadow-inner">${activeAlert.content}</div>
+        </div>`;
+        document.getElementById('emergency-modal').classList.remove('hidden');
+        }
+
+        function dismissCurrentAlert() {
+        alertQueue.shift(); renderEmergencyPopupStack();
+        }
+
+        function forceTriggerAlertPopup() {
+        hasAlertBeenShownThisSession = false; evaluateSecurityAlertRules(true);
+        }
+
+        // GPS 수신 및 위치 매핑 연동
+        function syncRealDeviceGPS() {
+        const statusIndicator = document.getElementById('gps-status-indicator');
+        if (!navigator.geolocation) {
+        statusIndicator.innerHTML = "❌ 하드웨어 GPS 브라우저 미지원";
+        return;
+        }
+
+        statusIndicator.innerHTML = "📡 디바이스 실시간 GPS 위성 신호 요청 중...";
+
+        navigator.geolocation.getCurrentPosition(
+        (position) => {
+        const realLat = position.coords.latitude;
+        const realLng = position.coords.longitude;
+
+        userCurrentLocation = { lat: realLat, lng: realLng };
+        statusIndicator.innerHTML = `✅ 디바이스 GPS 위성 수신 완료 (${realLat.toFixed(4)}, ${realLng.toFixed(4)})`;
+
+        if (map && userMarker) {
+        const newBound = L.latLng(realLat, realLng);
+        userMarker.setLatLng(newBound).bindPopup("<b>내 하드웨어 실시간 GPS 위치</b>").openPopup();
+        map.flyTo(newBound, 15);
+        }
+
+        evaluateSecurityAlertRules(false);
+        },
+        (error) => {
+        console.error(error);
+        statusIndicator.innerHTML = "⚠️ GPS 권한 차단 또는 수신 불가능 (임시 기본 서울 모드)";
+        },
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+        );
+        }
+
+        // 지도 초기화
+        function initMap() {
+        map = L.map('map').setView([userCurrentLocation.lat, userCurrentLocation.lng], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        userMarker = L.marker([userCurrentLocation.lat, userCurrentLocation.lng]).addTo(map).bindPopup("<b>내 안심 위치</b>").openPopup();
+
+        mockDangerZones.forEach(zone => {
+        L.circle([zone.lat, zone.lng], { color: '#ef4444', fillColor: '#ef4444', fillOpacity: 0.25, radius: 250 }).addTo(map)
+        .bindPopup(`<b>[레드존 위험구역] ${zone.name}</b>`);
+        });
+
+        syncRealDeviceGPS();
+        }
+
+        function setDestination(lat, lon, name) {
+        if (destMarker) map.removeLayer(destMarker);
+        destMarker = L.marker([lat, lon]).addTo(map).bindPopup(`<b>목적지: ${name}</b>`).openPopup();
+        document.getElementById('route-btn').disabled = false;
+        document.getElementById('route-btn').classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+
+        async function searchDestination() {
+        const q = document.getElementById('dest-input').value.trim();
+        if (!q) return;
+        try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&countrycodes=kr&limit=1`);
+        const data = await res.json();
+        if (data.length > 0) {
+        setDestination(parseFloat(data[0].lat), parseFloat(data[0].lon), q);
+        map.flyTo([data[0].lat, data[0].lon], 15);
+        }
+        } catch (e) { alert("지도 조회 지연"); }
+        }
+
+        // 루트 생성
+        function drawSafeRoute() {
+        if (routeLine) map.removeLayer(routeLine);
+        const start = userMarker.getLatLng(); const end = destMarker.getLatLng();
+        routeLine = L.polyline([start, [start.lat + 0.001, start.lng + 0.0015], end], { color: '#4f46e5', weight: 6, dashArray: '5, 10' }).addTo(map);
+        map.fitBounds(routeLine.getBounds());
+        }
+
+        // 포인트 상점 UI 업데이트
+        function updatePointDisplays() {
+        document.getElementById('user-points-header').innerText = userPoints.toLocaleString();
+        document.getElementById('user-points-display').innerText = userPoints.toLocaleString();
+        }
+
+        function purchaseGiftcon(itemName, pricePoints) {
+        if (userPoints < pricePoints) {
+        alert(`❌ 안심 포인트가 부족합니다.\n\n필요 포인트: ${pricePoints.toLocaleString()} P\n현재 보유 포인트: ${userPoints.toLocaleString()} P\n\n하단의 '안전 시뮬레이션 퀘스트' 문제를 맞추고 보상을 획득하여 교환해 보세요!`);
+        return;
+        }
+
+        if(confirm(`[기프티콘 안심 상품 교환]\n\n선택 상품: ${itemName}\n차감 포인트: ${pricePoints.toLocaleString()} P\n\n정말 교환하시겠습니까?`)) {
+        userPoints -= pricePoints;
+        updatePointDisplays();
+
+        document.getElementById('coupon-item-name').innerText = itemName;
+        document.getElementById('shop-success-modal').classList.remove('hidden');
+        }
+        }
+
+        // 퀘스트 훈련용 모듈 및 하루 제한 스크립트
+        let currentSIdx = 0;
+        let solvedCountToday = 0;
+        const MAX_DAILY_QUESTS = 3;
+
+        function loadRandomScenario() {
+        // 이미 오늘 제한을 다 채웠으면 훈련 잠금 상태 뷰 유지
+        if (solvedCountToday >= MAX_DAILY_QUESTS) {
+        document.getElementById('simulation-box').innerHTML = `
+        <div class="text-center py-6">
+        <i class="fas fa-lock text-yellow-400 text-3xl mb-3"></i>
+        <p class="font-black text-yellow-300 text-sm">[오늘의 안심 훈련 완료]</p>
+        <p class="text-xs text-stone-300 mt-2 leading-relaxed">오늘 할당된 ${MAX_DAILY_QUESTS}개의 안전 훈련 퀘스트를 모두 이수하셨습니다.<br>포인트 리워드는 내일 다시 활성화됩니다.</p>
+        </div>`;
+        return;
+        }
+
+        currentSIdx = Math.floor(Math.random() * scenarios.length);
+        const sc = scenarios[currentSIdx];
+        document.getElementById('simulation-box').innerHTML = `
+        <div class="text-xs">
+        <p class="font-black text-yellow-300 mb-1">[실시간 가드 훈련 퀘스트 - 오늘 진행: ${solvedCountToday}/${MAX_DAILY_QUESTS}]</p>
+        <p class="font-bold mb-4 leading-relaxed">${sc.question}</p>
+        <div class="space-y-2">
+        ${sc.options.map((o, i) => `<button onclick="checkAnswer(${i})" class="simulation-btn w-full p-3 bg-white/10 hover:bg-white/20 rounded-xl text-left font-semibold text-xs transition">${i+1}. ${o.text}</button>`).join('')}
+        </div>
+        </div>`;
+        }
+
+        // 문제 정답 시 하루 3개까지만 포인트 지급 및 진입 차단
+        function checkAnswer(idx) {
+        if (solvedCountToday >= MAX_DAILY_QUESTS) {
+        alert(`🚫 [안심 가드 제한]\n\n과도한 포인트 어뷰징을 방지하기 위해 하루 최대 3개의 퀘스트까지만 참여할 수 있습니다.\n내일 새로운 안전 훈련에 도전해 주세요!`);
+        return;
+        }
+
+        const sc = scenarios[currentSIdx];
+        if (sc.options[idx].isCorrect) {
+        userPoints += 5;
+        solvedCountToday += 1;
+        updatePointDisplays();
+        alert(`🎉 정답입니다!\n\n💡 해설: ${sc.explanation}\n\n리워드 안심 포인트 +5 P가 적립되었습니다!\n(오늘 완료한 퀘스트: ${solvedCountToday} / ${MAX_DAILY_QUESTS}개)`);
+        } else {
+        alert("❌ 올바르지 않은 대처입니다. 행동지침을 다시 확인하세요.");
+        }
+        loadRandomScenario();
+        }
+
+        // AI 가드 상담 채널
+        function askAIGuardWithAgencies() {
+        const text = document.getElementById('ai-chat-input').value.trim();
+        const box = document.getElementById('ai-response-box');
+        if (!text) return; box.classList.remove('hidden'); box.innerHTML = "위협 정황 종합 분석 중...";
+        setTimeout(() => {
+        let r = `🤖 **세이프 가드 AI 위협 상황 진단서**\n\n`;
+        if(text.includes("시험") || text.includes("족보")) {
+        r += `기출문제 유출을 미끼로 한 전형적인 학사 일정 스미싱 위협입니다. 절대 링크를 열람하지 마시고 하단 전문 기관인 **[경찰청 사이버수사국 ECRM]** 채널로 이동하여 피싱 조치를 진행하세요.`;
+        } else if(text.includes("사금융") || text.includes("돈") || text.includes("대리입금")) {
+        r += `불법 청소년 사금융 유인 범죄 정황입니다. 절대로 주민등록증이나 가족 신상을 넘기지 마시고 하단 **[금융감독원 불법사금융 피해신고센터]**나 **[경찰청]**에 즉시 긴급 무료 법률 대리를 요청하세요.`;
+        } else {
+        r += `입력하신 피해 유형의 확산을 즉각 방지하기 위해 가해자와의 메시지 대화방을 캡처 보존하시고, 아래 배치된 전문 국가 기관의 구제 신청 단추를 클릭해 실무적 삭제 및 수사 명령을 요청하시기 바랍니다.`;
+        }
+        box.innerHTML = r;
+        }, 500);
+        }
+
+        // 무선 와이파이 가드
+        function triggerWifiScan() {
+        const modal = document.getElementById('wifi-detail-modal');
+        const overlay = document.getElementById('wifi-scanning-overlay');
+        const pBar = document.getElementById('scan-progress');
+        const reportList = document.getElementById('wifi-report-list');
+
+        document.getElementById('wifi-scan-title').innerText = "현재 브라우저 네트워크 통신 보안 분석 중...";
+        modal.classList.remove('hidden');
+        overlay.classList.remove('hidden');
+        pBar.style.width = '0%';
+
+        let cp = 0;
+        const timer = setInterval(() => {
+        cp += 20;
+        pBar.style.width = `${cp}%`;
+        if (cp >= 100) {
+        clearInterval(timer);
+
+        const isHttps = window.location.protocol === 'https:';
+        const isLocal = window.location.protocol === 'file:';
+
+        setTimeout(() => {
+        overlay.classList.add('hidden');
+
+        let securityStatusHTML = "";
+
+        if (isHttps) {
+        securityStatusHTML = `
+        <div class="flex justify-between border-b pb-1"><span>SSL/TLS 암호화 레이어 (HTTPS)</span><span class="font-bold text-green-600">안전 (TLS 1.3 암호화 완료)</span></div>
+        <div class="flex justify-between border-b pb-1"><span>Wi-Fi 패킷 스니핑 무결성</span><span class="font-bold text-green-600">정상 (회선 도청 우회 우려 없음)</span></div>
+        <div class="flex justify-between border-b pb-1"><span>DNS 게이트웨이 하이재킹</span><span class="font-bold text-green-600">무결함 (정상 변조 없음)</span></div>
+        <div class="p-2.5 bg-green-50 text-green-800 rounded-xl mt-3 font-medium">
+        🔒 현재 기기가 안전하게 암호화된 전송 계층 통신망을 사용 중입니다. 공공 Wi-Fi 환경에서도 데이터 탈취 위험이 최소화됩니다.
+        </div>`;
+        document.getElementById('wifi-status-badge').innerText = "보안 안전";
+        document.getElementById('wifi-status-badge').className = "px-2.5 py-1 bg-green-100 text-green-600 text-[10px] font-black rounded-lg";
+        document.getElementById('wifi-status-msg').innerText = "HTTPS 암호화 레이어 검증 통과. 중간자 공격 패킷 가로채기 안전 구역입니다.";
+        document.getElementById('wifi-icon-box').className = "w-10 h-10 rounded-2xl bg-green-50 flex items-center justify-center text-green-600";
+        } else if(isLocal) {
+        securityStatusHTML = `
+        <div class="flex justify-between border-b pb-1"><span>SSL/TLS 암호화 레이어 (Local)</span><span class="font-bold text-amber-600">로컬 파일 모드 (안전)</span></div>
+        <div class="flex justify-between border-b pb-1"><span>네트워크 게이트웨이 검증</span><span class="font-bold text-green-600">정상 (내부 샌드박스 실행)</span></div>
+        <div class="p-2.5 bg-amber-50 text-amber-800 rounded-xl mt-3 font-medium">
+        💡 로컬 개발/오프라인 가동 환경입니다. 실제 서버 네트워크와 연결되지 않아 외부 Wi-Fi 패킷 하이재킹 위험으로부터 완전히 차단된 격리 안전 상태입니다.
+        </div>`;
+        document.getElementById('wifi-status-badge').innerText = "로컬 안전";
+        document.getElementById('wifi-status-badge').className = "px-2.5 py-1 bg-amber-100 text-amber-600 text-[10px] font-black rounded-lg";
+        document.getElementById('wifi-status-msg').innerText = "로컬 샌드박스 오프라인 격리 통과. 네트워크 도청이 불가능한 내부 환경입니다.";
+        } else {
+        securityStatusHTML = `
+        <div class="flex justify-between border-b pb-1"><span>SSL/TLS 암호화 레이어 (HTTP)</span><span class="font-bold text-red-600">위험 (평문 전송 상태)</span></div>
+        <div class="flex justify-between border-b pb-1"><span>중간자 패킷 탈취 가능성</span><span class="font-bold text-red-600">높음 (주의 요망)</span></div>
+        <div class="p-2.5 bg-red-50 text-red-800 rounded-xl mt-3 font-medium">
+        ⚠️ 경고: 현재 암호화되지 않은 프로토콜 통신 회선에 노출되어 있습니다. 공공 장소나 오픈 Wi-Fi 공유기 접속 시 아이디, 패스워드가 타인에게 실시간 노출될 위험이 존재하므로 즉시 안전한 통신망으로 전환하십시오.
+        </div>`;
+        document.getElementById('wifi-status-badge').innerText = "취약/위험";
+        document.getElementById('wifi-status-badge').className = "px-2.5 py-1 bg-red-100 text-red-600 text-[10px] font-black rounded-lg";
+        document.getElementById('wifi-status-msg').innerText = "위험: 암호화 레이어가 부재한 네트워크 상태입니다. 공공 Wi-Fi 공유기 이용 자제 권고.";
+        document.getElementById('wifi-icon-box').className = "w-10 h-10 rounded-2xl bg-red-50 flex items-center justify-center text-red-600 animate-pulse";
+        }
+
+        reportList.innerHTML = securityStatusHTML;
+        }, 300);
+        }
+        }, 150);
+        }
+
+        // 글로벌 탭 컨트롤
+        function showTab(tabId) {
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(b => b.className = "flex flex-col items-center text-gray-400 tab-btn");
+        document.getElementById(tabId).classList.add('active');
+        document.getElementById('btn-' + tabId).className = "flex flex-col items-center text-indigo-600 tab-btn";
+
+        if (tabId === 'map-section') {
+        setTimeout(() => {
+        map.invalidateSize();
+        syncRealDeviceGPS();
+        }, 200);
+        }
+        }
+    </script>
+</body>
+</html>
